@@ -70,10 +70,21 @@ def save_allowed_users(users_set):
     save_lines(ALLOWED_USERS_FILE, list(users_set))
 
 
-def is_allowed(user: discord.Member, author_id: int) -> bool:
+def is_allowed(user, author_id: int) -> bool:
     if isinstance(user, discord.Member) and user.guild_permissions.administrator:
         return True
     return str(author_id) in load_allowed_users()
+
+
+# ---- custom check: admin OR allowed ----
+def is_admin_or_allowed():
+    async def predicate(ctx):
+        if ctx.author.guild_permissions.administrator:
+            return True
+        if str(ctx.author.id) in load_allowed_users():
+            return True
+        raise commands.CheckFailure("You do not have permission to use this command.")
+    return commands.check(predicate)
 
 
 # ============================================================
@@ -141,7 +152,7 @@ async def on_message(message: discord.Message):
 #  ACCOUNT COMMANDS
 # ============================================================
 @bot.command(name="add")
-@commands.has_permissions(administrator=True)
+@is_admin_or_allowed()
 async def add_accounts(ctx, *, data: str = None):
     if data is None and ctx.message.reference:
         try:
@@ -189,6 +200,7 @@ async def add_accounts(ctx, *, data: str = None):
 
 
 @bot.command(name="stock")
+@is_admin_or_allowed()
 async def stock(ctx):
     lines = load_lines(ACCOUNTS_FILE)
     used = load_lines(USED_FILE)
@@ -196,14 +208,14 @@ async def stock(ctx):
 
 
 @bot.command(name="clear")
-@commands.has_permissions(administrator=True)
+@is_admin_or_allowed()
 async def clear_stock(ctx):
     save_lines(ACCOUNTS_FILE, [])
     await ctx.send("Stock cleared.")
 
 
 @bot.command(name="used")
-@commands.has_permissions(administrator=True)
+@is_admin_or_allowed()
 async def used_cmd(ctx):
     used = load_lines(USED_FILE)
     if not used:
@@ -214,7 +226,7 @@ async def used_cmd(ctx):
 
 
 # ============================================================
-#  PERMISSION COMMANDS
+#  PERMISSION COMMANDS (only admin)
 # ============================================================
 @bot.command(name="gp")
 @commands.has_permissions(administrator=True)
@@ -225,7 +237,7 @@ async def grant_permission(ctx, member: discord.Member):
         return
     allowed.add(str(member.id))
     save_allowed_users(allowed)
-    await ctx.send(f"Granted permission to {member.mention}.")
+    await ctx.send(f"Granted full access to {member.mention}.")
 
 
 @bot.command(name="gpr")
@@ -237,7 +249,7 @@ async def revoke_permission(ctx, member: discord.Member):
         return
     allowed.discard(str(member.id))
     save_allowed_users(allowed)
-    await ctx.send(f"Revoked permission from {member.mention}.")
+    await ctx.send(f"Revoked access from {member.mention}.")
 
 
 @bot.command(name="gpl")
@@ -265,19 +277,33 @@ async def clear_permissions(ctx):
 
 
 # ============================================================
+#  ERROR HANDLER
+# ============================================================
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        await ctx.send("You do not have permission to use this command.")
+        return
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You do not have permission to use this command.")
+        return
+    raise error
+
+
+# ============================================================
 #  HELP
 # ============================================================
 @bot.command(name="help")
 async def help_cmd(ctx):
     text = (
         "**Bot Commands**\n"
-        "`d` -> Take an account (allowed users only)\n"
-        "`!add` -> Bulk add accounts (admin)\n"
+        "`d` -> Take an account\n"
+        "`!add` -> Bulk add accounts\n"
         "`!stock` -> Available + Used count\n"
-        "`!used` -> Last 10 used (admin)\n"
-        "`!clear` -> Clear stock (admin)\n"
-        "`!gp @user` -> Grant permission (admin)\n"
-        "`!gpr @user` -> Revoke permission (admin)\n"
+        "`!used` -> Last 10 used\n"
+        "`!clear` -> Clear stock\n"
+        "`!gp @user` -> Grant full access (admin)\n"
+        "`!gpr @user` -> Revoke access (admin)\n"
         "`!gpl` -> List allowed users (admin)\n"
         "`!gpclear` -> Clear all permissions (admin)\n"
         "`!help` -> This message"
