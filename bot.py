@@ -10,6 +10,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DATA_DIR = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", ".")
 ACCOUNTS_FILE = os.path.join(DATA_DIR, "accounts.txt")
 USED_FILE = os.path.join(DATA_DIR, "used.txt")
+ALLOWED_USERS_FILE = os.path.join(DATA_DIR, "allowed_users.txt")
 
 ALLOWED_CHANNEL_ID = None
 
@@ -60,6 +61,22 @@ def parse_line(line: str):
     return mail, password
 
 
+# ---- allowed users helpers ----
+def load_allowed_users():
+    return set(load_lines(ALLOWED_USERS_FILE))
+
+
+def save_allowed_users(users_set):
+    save_lines(ALLOWED_USERS_FILE, list(users_set))
+
+
+def is_allowed(user: discord.Member, author_id: int) -> bool:
+    # Admins always allowed
+    if isinstance(user, discord.Member) and user.guild_permissions.administrator:
+        return True
+    return str(author_id) in load_allowed_users()
+
+
 # ============================================================
 #  EVENTS
 # ============================================================
@@ -67,9 +84,10 @@ def parse_line(line: str):
 async def on_ready():
     print("=" * 50)
     print(f"Logged in as {bot.user} ({bot.user.id})")
-    print(f"Data dir   : {DATA_DIR}")
-    print(f"Stock file : {ACCOUNTS_FILE}")
-    print(f"Used file  : {USED_FILE}")
+    print(f"Data dir    : {DATA_DIR}")
+    print(f"Stock file  : {ACCOUNTS_FILE}")
+    print(f"Used file   : {USED_FILE}")
+    print(f"Allowed file: {ALLOWED_USERS_FILE}")
     print("=" * 50)
 
 
@@ -83,6 +101,11 @@ async def on_message(message: discord.Message):
         return
 
     if message.content.strip().lower() == "d":
+        # permission check
+        if not is_allowed(message.author, message.author.id):
+            await message.reply("You are not allowed to use this command.")
+            return
+
         lines = load_lines(ACCOUNTS_FILE)
 
         if not lines:
@@ -117,7 +140,7 @@ async def on_message(message: discord.Message):
 
 
 # ============================================================
-#  COMMANDS
+#  ACCOUNT COMMANDS
 # ============================================================
 @bot.command(name="add")
 @commands.has_permissions(administrator=True)
@@ -192,15 +215,73 @@ async def used_cmd(ctx):
     await ctx.send("**Last 10 used:**\n" + "\n".join(f"`{u}`" for u in last))
 
 
+# ============================================================
+#  PERMISSION COMMANDS (GP)
+# ============================================================
+@bot.command(name="gp")
+@commands.has_permissions(administrator=True)
+async def grant_permission(ctx, member: discord.Member):
+    allowed = load_allowed_users()
+    if str(member.id) in allowed:
+        await ctx.send(f"{member.mention} already has permission.")
+        return
+    allowed.add(str(member.id))
+    save_allowed_users(allowed)
+    await ctx.send(f"Granted permission to {member.mention}.")
+
+
+@bot.command(name="gpr")
+@commands.has_permissions(administrator=True)
+async def revoke_permission(ctx, member: discord.Member):
+    allowed = load_allowed_users()
+    if str(member.id) not in allowed:
+        await ctx.send(f"{member.mention} does not have permission.")
+        return
+    allowed.discard(str(member.id))
+    save_allowed_users(allowed)
+    await ctx.send(f"Revoked permission from {member.mention}.")
+
+
+@bot.command(name="gpl")
+@commands.has_permissions(administrator=True)
+async def list_permissions(ctx):
+    allowed = load_allowed_users()
+    if not allowed:
+        await ctx.send("No users have permission yet.")
+        return
+    lines = []
+    for uid in allowed:
+        try:
+            user = await bot.fetch_user(int(uid))
+            lines.append(f"{user.mention} (`{uid}`)")
+        except Exception:
+            lines.append(f"`{uid}` (unknown user)")
+    await ctx.send("**Allowed users:**\n" + "\n".join(lines))
+
+
+@bot.command(name="gpclear")
+@commands.has_permissions(administrator=True)
+async def clear_permissions(ctx):
+    save_allowed_users(set())
+    await ctx.send("All permissions cleared.")
+
+
+# ============================================================
+#  HELP
+# ============================================================
 @bot.command(name="help")
 async def help_cmd(ctx):
     text = (
         "**Bot Commands**\n"
-        "`d` -> Take an account\n"
+        "`d` -> Take an account (allowed users only)\n"
         "`!add` -> Bulk add accounts (admin)\n"
         "`!stock` -> Available + Used count\n"
         "`!used` -> Last 10 used (admin)\n"
         "`!clear` -> Clear stock (admin)\n"
+        "`!gp @user` -> Grant permission (admin)\n"
+        "`!gpr @user` -> Revoke permission (admin)\n"
+        "`!gpl` -> List allowed users (admin)\n"
+        "`!gpclear` -> Clear all permissions (admin)\n"
         "`!help` -> This message"
     )
     await ctx.send(text)
