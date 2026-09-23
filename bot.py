@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import asyncio
 from datetime import datetime
 
 # ============================================================
@@ -13,6 +14,7 @@ USED_FILE = os.path.join(DATA_DIR, "used.txt")
 ALLOWED_USERS_FILE = os.path.join(DATA_DIR, "allowed_users.txt")
 
 ALLOWED_CHANNEL_ID = None
+ERROR_DELETE_AFTER = 5   # seconds
 
 # ============================================================
 #  BOT SETUP
@@ -76,15 +78,28 @@ def is_allowed(user, author_id: int) -> bool:
     return str(author_id) in load_allowed_users()
 
 
-# ---- custom check: admin OR allowed ----
-def is_admin_or_allowed():
-    async def predicate(ctx):
-        if ctx.author.guild_permissions.administrator:
-            return True
-        if str(ctx.author.id) in load_allowed_users():
-            return True
-        raise commands.CheckFailure("You do not have permission to use this command.")
-    return commands.check(predicate)
+def is_admin_or_allowed_check(ctx) -> bool:
+    if ctx.author.guild_permissions.administrator:
+        return True
+    if str(ctx.author.id) in load_allowed_users():
+        return True
+    return False
+
+
+# ---- auto-delete helper ----
+async def send_temp(ctx_or_message, text, delay=ERROR_DELETE_AFTER):
+    try:
+        if isinstance(ctx_or_message, discord.Message):
+            msg = await ctx_or_message.reply(text)
+        else:
+            msg = await ctx_or_message.send(text)
+        await asyncio.sleep(delay)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -112,7 +127,7 @@ async def on_message(message: discord.Message):
 
     if message.content.strip().lower() == "d":
         if not is_allowed(message.author, message.author.id):
-            await message.reply("You are not allowed to use this command.")
+            await send_temp(message, "You are not allowed to use this command.")
             return
 
         lines = load_lines(ACCOUNTS_FILE)
@@ -152,8 +167,11 @@ async def on_message(message: discord.Message):
 #  ACCOUNT COMMANDS
 # ============================================================
 @bot.command(name="add")
-@is_admin_or_allowed()
 async def add_accounts(ctx, *, data: str = None):
+    if not is_admin_or_allowed_check(ctx):
+        await send_temp(ctx, "You do not have permission to use this command.")
+        return
+
     if data is None and ctx.message.reference:
         try:
             ref_msg = await ctx.channel.fetch_message(ctx.message.reference.message_id)
@@ -200,23 +218,32 @@ async def add_accounts(ctx, *, data: str = None):
 
 
 @bot.command(name="stock")
-@is_admin_or_allowed()
 async def stock(ctx):
+    if not is_admin_or_allowed_check(ctx):
+        await send_temp(ctx, "You do not have permission to use this command.")
+        return
+
     lines = load_lines(ACCOUNTS_FILE)
     used = load_lines(USED_FILE)
     await ctx.send(f"Available: **{len(lines)}** | Used: **{len(used)}**")
 
 
 @bot.command(name="clear")
-@is_admin_or_allowed()
 async def clear_stock(ctx):
+    if not is_admin_or_allowed_check(ctx):
+        await send_temp(ctx, "You do not have permission to use this command.")
+        return
+
     save_lines(ACCOUNTS_FILE, [])
     await ctx.send("Stock cleared.")
 
 
 @bot.command(name="used")
-@is_admin_or_allowed()
 async def used_cmd(ctx):
+    if not is_admin_or_allowed_check(ctx):
+        await send_temp(ctx, "You do not have permission to use this command.")
+        return
+
     used = load_lines(USED_FILE)
     if not used:
         await ctx.send("No used accounts.")
@@ -281,13 +308,20 @@ async def clear_permissions(ctx):
 # ============================================================
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.CheckFailure):
-        await ctx.send("You do not have permission to use this command.")
-        return
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("You do not have permission to use this command.")
+        await send_temp(ctx, "You do not have permission to use this command.")
         return
-    raise error
+    if isinstance(error, commands.CheckFailure):
+        await send_temp(ctx, "You do not have permission to use this command.")
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await send_temp(ctx, "Missing argument.")
+        return
+    if isinstance(error, commands.MemberNotFound):
+        await send_temp(ctx, "Member not found.")
+        return
+    # silence others
+    return
 
 
 # ============================================================
