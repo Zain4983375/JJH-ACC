@@ -14,7 +14,7 @@ USED_FILE = os.path.join(DATA_DIR, "used.txt")
 ALLOWED_USERS_FILE = os.path.join(DATA_DIR, "allowed_users.txt")
 
 ALLOWED_CHANNEL_ID = None
-ERROR_DELETE_AFTER = 5   # seconds
+ERROR_DELETE_AFTER = 5
 
 # ============================================================
 #  BOT SETUP
@@ -58,6 +58,8 @@ def parse_line(line: str):
         return None
     mail = parts[0].split(":", 1)[1].strip()
     password = parts[1].split(":", 1)[1].strip()
+    if "(" in password:
+        password = password.split("(", 1)[0].strip()
     if not mail or not password:
         return None
     return mail, password
@@ -86,7 +88,6 @@ def is_admin_or_allowed_check(ctx) -> bool:
     return False
 
 
-# ---- auto-delete helper ----
 async def send_temp(ctx_or_message, text, delay=ERROR_DELETE_AFTER):
     try:
         if isinstance(ctx_or_message, discord.Message):
@@ -253,7 +254,7 @@ async def used_cmd(ctx):
 
 
 # ============================================================
-#  PERMISSION COMMANDS (only admin)
+#  PERMISSION COMMANDS
 # ============================================================
 @bot.command(name="gp")
 @commands.has_permissions(administrator=True)
@@ -320,7 +321,6 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.MemberNotFound):
         await send_temp(ctx, "Member not found.")
         return
-    # silence others
     return
 
 
