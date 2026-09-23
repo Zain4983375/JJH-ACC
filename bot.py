@@ -71,7 +71,6 @@ def save_allowed_users(users_set):
 
 
 def is_allowed(user: discord.Member, author_id: int) -> bool:
-    # Admins always allowed
     if isinstance(user, discord.Member) and user.guild_permissions.administrator:
         return True
     return str(author_id) in load_allowed_users()
@@ -101,7 +100,6 @@ async def on_message(message: discord.Message):
         return
 
     if message.content.strip().lower() == "d":
-        # permission check
         if not is_allowed(message.author, message.author.id):
             await message.reply("You are not allowed to use this command.")
             return
@@ -133,7 +131,7 @@ async def on_message(message: discord.Message):
             f"**Mail Login Site:-** https://flowmail.cc/\n\n"
             f"**Note:-** Use same email password for flowmail and discord to login"
         )
-        await message.reply(f"```\n{text}\n```")
+        await message.reply(text)
         return
 
     await bot.process_commands(message)
@@ -216,7 +214,7 @@ async def used_cmd(ctx):
 
 
 # ============================================================
-#  PERMISSION COMMANDS (GP)
+#  PERMISSION COMMANDS
 # ============================================================
 @bot.command(name="gp")
 @commands.has_permissions(administrator=True)
